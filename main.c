@@ -420,6 +420,10 @@ void parse_request(char *request, struct RequestData *data) {
         strcpy(data->filetype, "folder");
     } else if (strstr(data->filepath, "=")) {
         strcpy(data->filetype, "function");
+    } else if (strstr(data->filepath, ".wav")) {
+        strcpy(data->filetype, ".wav");
+     } else if (strstr(data->filepath, ".mp3")) {
+        strcpy(data->filetype, ".mp3");
     } else {
         strcpy(data->filetype, "unknown");
     }
@@ -454,6 +458,107 @@ void send_custom_page(int socket, char *page) {
     send(socket, page, strlen(page), 0);
     close(socket);    
 }
+
+
+void send_audio(int socket, char *path, char *client_request) {
+    printf("Preparing audio\n");
+
+    FILE *file = fopen(path, "rb");
+    if (!file) {
+        printf("File not found. Sending 404\n");
+        fof(socket);
+        return;
+    }
+
+    fseek(file, 0L, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+
+    long start = 0;
+    long end = size - 1;
+    char *range = strstr(client_request, "Range: bytes=");
+
+    char *type = strstr(path, ".wav") ? "audio/wav" : "audio/mp3"; //inline if statement
+    char audio_header[BUFFER];
+        
+    if (range) {
+        range += 13;
+        sscanf(range, "%ld-%ld", &start, &end);
+        if (end <= 0 || end >= size) {
+            end = size - 1;
+        }
+        fseek(file, start, SEEK_SET);
+        
+        snprintf(audio_header, sizeof(audio_header),
+            "HTTP/1.1 206 Partial Content\r\n"
+            "Content-Type: %s\r\n"
+            "Accept-Ranges: bytes\r\n"
+            "Content-Range: bytes %ld-%ld/%ld\r\n"
+            "Content-Length: %ld\r\n\r\n",
+            type, start, end, size, (end - start + 1));
+        send(socket, audio_header, strlen(audio_header), 0);
+
+    } else {
+        snprintf(audio_header, sizeof(audio_header), 
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: %s\r\n"
+            "Accept-Ranges: bytes"
+            "Content-Length: %ld"
+            "\r\n",
+            type, size);
+
+        char audio_player[BUFFER];
+        char copy_of_path[BUFFER / 4];
+        strcpy(copy_of_path, path);
+ 
+        char (*files)[MEDIA_LENGTH] = malloc(MEDIA_AMNT * MEDIA_LENGTH);
+        memset(files, 0, MEDIA_AMNT * MEDIA_LENGTH);
+        char (*directories)[DIR_LENGTH] = malloc(DIR_AMNT * DIR_LENGTH);
+        memset(directories, 0, DIR_AMNT * DIR_LENGTH);
+
+        get_directories(directories);
+        get_files(directories, files);
+
+        snprintf(audio_player, sizeof(audio_player),
+            "<!DOCTYPE html>\n"
+            "<html>\n<head><title>Listening: %s</title></head>\n"
+            "<h1 style='color:white;'><a href='/' style='color:white;'>Streamer</a></h1><br><br>\n"
+            "<body style='background-color:black; color:white; text-align:center;'>\n"
+            "<form>\n"
+            "   <label style='color:white;'>Search for:</label>\n"
+            "       <input type='search' id='site-search' name='search' placeholder='def not pirated'><br>\n"
+            "    <input type='radio' id='tv' name='choice' value='movies'>\n"
+            "       <label style='color:white;' for='option2'>Movies</label>\n"
+            "    <input type='radio' id='movie' name='choice' value='tv'>\n"
+            "       <label style='color:white;' for='option1'>Television Series</label><br><br>\n"
+            "    <button>Search</button>\n"
+            "</form><br>\n"
+
+            "<h2>Listening %s</h2>\n"
+            "   <audio controls preload='metadata' src='/%s'></audio>"
+
+            "</body></html>",
+            isolate(path, '/'), isolate(path, '/'), path);
+            send(socket, audio_header, strlen(audio_header), 0);
+            send_custom_page(socket, audio_player);
+            return;
+
+    }
+
+    char audio_buffer[BUFFER];
+    long remaining_bytes = end - start + 1;
+
+    while (remaining_bytes > 0) {
+        int chunk = (remaining_bytes < BUFFER) ? remaining_bytes : BUFFER;
+        int bytes_read = fread(audio_buffer, 1, chunk, file);
+        if (bytes_read <= 0) break;
+
+        if (send(socket, audio_buffer, bytes_read, MSG_NOSIGNAL) <= 0) break;
+        remaining_bytes -= bytes_read;
+    }
+    fclose(file);
+}
+
 
 void send_video(int socket, char *path, char *client_request, char *ext) {
     printf("Preparing video\n");
@@ -667,6 +772,9 @@ void *client(void *new_socket) {
         } else if (strcmp(request.filetype, ".mp4") == 0 || strcmp(request.filetype, ".mkv") == 0) {
             printf("Request is for videos, sending %s\n", request.filepath);
             send_video(socket, request.filepath, buffer, request.filetype);
+        } else if (strcmp(request.filetype, ".mp3") == 0 || strcmp(request.filetype, ".wav") == 0) {
+            printf("Request is for videos, sending %s\n", request.filepath);
+            send_audio(socket, request.filepath, buffer);
         }
     }
     
