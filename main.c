@@ -805,7 +805,7 @@ void send_systeminfo(int client) {
 
 
 void send_resources(int client) {
-    char webpage[4096] = {0};
+    char webpage[8192] = {0};
     strcpy(webpage, "<!DOCTYPE html>\n"
     "<html>\n"
     "<body>\n"
