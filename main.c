@@ -7,6 +7,7 @@
 #include <string.h>
 #include <dirent.h>
 
+int enable_system_info = 0; //change to disallow viewing system information on index
 
 #define ROOT "./"
 #define PORT 8080
@@ -61,9 +62,6 @@ char* remove_extention(char *name) {
     }
     return name;
 }
-
-
-
 
 int check_for_file(char *string, char files[MEDIA_AMNT][MEDIA_LENGTH]) {
     for (int i = 0; files[i][0] != 0; i++) {
@@ -729,6 +727,119 @@ void send_index(int client, char *request) {
  
 }
 
+void send_temperatures(int client) {
+    char page[8192] = {0};
+    snprintf(page, sizeof(page),
+        "<!DOCTYPE html><html><body>\n"
+        "<h1>CPU Core Temperatures</h1>\n"
+        "<table border=\"1\">\n"
+        "<tr><th>Core</th><th>Temp (C)</th></tr>\n");
+
+    DIR *hwmon_folder = opendir("/sys/class/hwmon");
+    struct dirent *sensor;
+    while ((sensor = readdir(hwmon_folder)) != NULL) {
+        if (sensor->d_name[0] == '.') {
+            continue;
+        }
+        char name_path[256];
+        snprintf(name_path, sizeof(name_path), "/sys/class/hwmon/%s/name", sensor->d_name);
+        FILE *name_file = fopen(name_path, "r");
+        if (name_file == NULL) {
+            continue;
+        }
+        char driver_name[64];
+        fgets(driver_name, sizeof(driver_name), name_file);
+        fclose(name_file);
+        int is_cpu_sensor =
+            strncmp(driver_name, "coretemp", 8) == 0 ||
+            strncmp(driver_name, "k10temp", 7) == 0 ||
+            strncmp(driver_name, "zenpower", 8) == 0;
+        if (!is_cpu_sensor) {
+            continue;
+        }
+        int core_number = 1;
+        while (1) {
+            char temp_path[256];
+            snprintf(temp_path, sizeof(temp_path), "/sys/class/hwmon/%s/temp%d_input", sensor->d_name, core_number);
+            FILE *temp_file = fopen(temp_path, "r");
+            if (temp_file == NULL) {
+                break;
+            }
+            int millidegrees;
+            fscanf(temp_file, "%d", &millidegrees);
+            fclose(temp_file);
+            double celsius = millidegrees / 1000.0;
+            snprintf(page + strlen(page), sizeof(page) - strlen(page),
+                "<tr><td>%d</td><td>%.1f</td></tr>\n", core_number, celsius);
+            core_number++;
+        }
+    }
+    closedir(hwmon_folder);
+    snprintf(page + strlen(page), sizeof(page) - strlen(page), "</table>\n</body></html>\n");
+    send_custom_page(client, page);
+}
+
+void send_systeminfo(int client) {
+    char webpage[2048] = {0};
+    strcpy(webpage, "<!DOCTYPE html>\n"
+    "<html>\n"
+    "<body>\n"
+    "<h1>System Usage Information</h2>\n");
+
+    FILE *info = popen("uname -a", "r");
+    if (info == NULL) {
+        perror("popen failed");
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), info) != NULL) {
+        strcat(webpage, "<p>");
+        strcat(webpage, line);
+        strcat(webpage, "</p>\n");
+    }
+    strcat(webpage, "</body>\n</html>");
+    pclose(info);
+    send_custom_page(client, webpage);
+}
+
+
+void send_resources(int client) {
+    char webpage[4096] = {0};
+    strcpy(webpage, "<!DOCTYPE html>\n"
+    "<html>\n"
+    "<body>\n"
+    "<h1>System Usage Information</h2>\n");
+
+    FILE *mem = popen("free -h", "r");
+    if (mem == NULL) {
+        perror("popen failed");
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), mem) != NULL) {
+        strcat(webpage, "<p>");
+        strcat(webpage, line);
+        strcat(webpage, "</p>\n");
+    }
+    pclose(mem);
+    FILE *cpu = popen("lscpu", "r");
+    if (cpu == NULL) {
+        perror("popen failed");
+        return;
+    }
+    while (fgets(line, sizeof(line), cpu) != NULL) {
+        strcat(webpage, "<p>");
+        strcat(webpage, line);
+        strcat(webpage, "</p>\n");
+    }
+    strcat(webpage, "</body>\n</html>");
+    pclose(cpu);
+    send_custom_page(client, webpage);
+}
+
+
 void *client(void *new_socket) {
     pthread_detach(pthread_self());
     int socket = *(int *)new_socket;
@@ -741,6 +852,27 @@ void *client(void *new_socket) {
     } else if (strstr(buffer, "GET / ")) {
         printf("Requesting root, building index");
         send_index(socket, buffer);
+        return NULL;
+    }
+
+    if (strstr(buffer, "/?service=")) {
+        send_custom_page(socket, "<!DOCTYPE html>\n<html>\n<body><p>Sorry! Not implemented yet.</p></body></html>\n");
+        return NULL;
+    } else if (strstr(buffer, "/?status=")) {
+        if (!enable_system_info) {
+            send_custom_page(socket, "<!DOCTYPE html>\n<html>\n<body><p>Sorry! Your not allowed to access these resources</p></body></html>\n");
+            return NULL;
+        }
+        if (strstr(buffer, "/?status=sysin")) {
+            printf("Client requested system information\n");
+            send_systeminfo(socket);
+        } else if (strstr(buffer, "/?status=temp")) {
+            printf("Client requested temperatures\n");
+            send_temperatures(socket);
+        } else if (strstr(buffer, "/?status=res")) {
+            printf("Client requested resources\n");
+            send_resources(socket);
+        }
         return NULL;
     }
     printf("\n------------REQUEST--------\n\n%s\n-----------------------\n", buffer);
