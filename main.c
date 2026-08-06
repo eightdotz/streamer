@@ -306,7 +306,7 @@ char *verify_query(char *query) {
 }
 
 int get_len_up_to(char *string, char item) {
-    int i = 0;
+    size_t i = 0;
     for (; string[i] != item && string[i] != '\0'; i++) {
         printf("check %c\n", string[i]);
     }
@@ -471,10 +471,10 @@ void send_video(int socket, char *path, char *client_request, char *ext) {
     long start = 0;
     long end = size - 1;
     char *range = strstr(client_request, "Range: bytes=");
-
     char *type = strstr(path, ".mkv") ? "video/x-matroska" : "video/mp4"; //inline if statement
     char video_header[BUFFER];
-        
+
+
     if (range) {
         range += 13;
         sscanf(range, "%ld-%ld", &start, &end);
@@ -491,15 +491,14 @@ void send_video(int socket, char *path, char *client_request, char *ext) {
             "Content-Length: %ld\r\n\r\n",
             type, start, end, size, (end - start + 1));
         send(socket, video_header, strlen(video_header), 0);
-
     } else {
         snprintf(video_header, sizeof(video_header), 
             "HTTP/1.1 200 OK\r\n"
+            "Set-Cookie: recent=%s; Path=/\r\n"
             "Content-Type: %s\r\n"
-            "Accept-Ranges: bytes"
-            "Content-Length: %ld"
-            "\r\n",
-            type, size);
+            "Accept-Ranges: bytes\r\n"
+            "Content-Length: %ld\r\n",
+            path, type, size);
 
         char video_player[BUFFER];
         char copy_of_path[BUFFER / 4];
@@ -518,6 +517,8 @@ void send_video(int socket, char *path, char *client_request, char *ext) {
         if (strstr(next_up, "No_more_episodes")) {
             strcpy(ext, ".html");
         }
+        free(files);
+        free(directories);
         snprintf(video_player, sizeof(video_player),
             "<!DOCTYPE html>\n"
             "<html>\n<head><title>Watching: %s</title></head>\n"
@@ -533,13 +534,26 @@ void send_video(int socket, char *path, char *client_request, char *ext) {
             "    <button>Search</button>\n"
             "</form><br>\n"
             "<h2>Watching %s</h2>\n"
-            "   <video width='1280' height='720' controls preload='metadata'>\n"
+            "   <video id='player' width='1280' height='720' controls preload='metadata'>\n"
             "       <source src='/%s' type='video/mp4'>\n"
-            "   </video>\n<br>"
+            "   </video>\n<br>\n"
             "<p><a href=/%s%s>Next Episode: %s</a></p>"
             "<form method='GET' action=''>\n"
             "   <button name='watchparty' value='%s'>Start Watch Party</button>\n"
             "</form>\n"
+            "<script>\n"
+            "const video = document.getElementById('player');\n"
+            "const key = 'video-' + window.location.pathname;\n"
+            "video.addEventListener('loadedmetadata', () => {\n"
+            "    const pos = localStorage.getItem(key);\n"
+            "    if (pos) {\n"
+            "        video.currentTime = parseFloat(pos);\n"
+            "    }"
+            "});"
+            "video.addEventListener('timeupdate', () => {\n"
+            "    localStorage.setItem(key, video.currentTime);\n"
+            "});\n"
+            "</script>\n"
             "</body></html>",
             isolate(path, '/'), isolate(path, '/'), path, next_up, ext, remove_extention(isolate(next_up, '/')), path);
             send(socket, video_header, strlen(video_header), 0);
@@ -585,6 +599,31 @@ void send_page(char *path, int socket) {
     close(socket);
 }
 
+void send_index(int client, char *request) {
+    char buffer[2048];
+
+    FILE *index = fopen("index.html", "r");
+    fread(buffer, 1, sizeof(buffer) - 1, index);
+    buffer[sizeof(buffer) - 1] = '\0';
+    fclose(index);
+    char cookie_path[256] = {0};
+    char output[2048] = {0};
+    if (strstr(request, "Cookie")) {
+        char *cookie = strstr(request, "Cookie: ");
+        cookie += 15;
+        sscanf(cookie, "%255s\n", cookie_path);
+        printf("COOKIE %s\n", cookie_path);
+        char title[256];
+        strcpy(title, isolate(cookie_path, '/'));
+        remove_extention(title);
+        snprintf(output, sizeof(output), buffer, cookie_path, title);
+    } else {
+        snprintf(output, sizeof(output), buffer, "/", "Watch a video to build a history!");
+    }
+    send_custom_page(client, output);
+ 
+}
+
 void *client(void *new_socket) {
     pthread_detach(pthread_self());
     int socket = *(int *)new_socket;
@@ -594,6 +633,10 @@ void *client(void *new_socket) {
     read(socket, buffer, BUFFER);
     if (strstr(buffer, "favicon.ico")) {
         printf("Sending fake favicon to satify dumb browsers\n");
+    } else if (strstr(buffer, "GET / ")) {
+        printf("Requesting root, building index");
+        send_index(socket, buffer);
+        return NULL;
     }
     printf("\n------------REQUEST--------\n\n%s\n-----------------------\n", buffer);
     
@@ -617,7 +660,7 @@ void *client(void *new_socket) {
     } else {
         
         printf("Client is requesting the file %s via the %s method with a filetype of %s\n", request.filepath, request.method, request.filetype);
-        
+
         if (strcmp(request.filetype, ".html") == 0 || strcmp(request.filetype, ".txt") == 0) {
             printf("Request is for webpages, sending %s\n", request.filepath);
             send_page(request.filepath, socket);
@@ -638,7 +681,11 @@ int main(void) {
     int client_socket, server;
     int opt = 1;
 
-    struct sockaddr_in addr = {AF_INET, htons(PORT), INADDR_ANY};
+    struct sockaddr_in addr = {
+    .sin_family = AF_INET,
+    .sin_port = htons(PORT),
+    .sin_addr.s_addr = INADDR_ANY,
+    };
     socklen_t addrlen = sizeof(addr);
 
     if ((server = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
