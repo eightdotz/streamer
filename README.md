@@ -13,11 +13,15 @@ In media/movies, this isnt a requirement. In this directory you can just copy mo
  NOTE: There are already directories for specific genres. These need to stay and are omitted by search. These directories are for genre sorting, but if no sorting is applied they are all searched.
  To prevent file naming issues each are assigned a code to make sure your free to pick whatever name without it being omitted.
 
+# Misc
+
+The server does support audio and document formats. For now they are treated like any other media and no dedicated folders are required.
+
 # WARNINGS:
 
  This is not intended for pirated content.
     
- Supported formats are .mp4, and .mkv
+ Supported formats are .mp4, .mkv, .mp3, .wav, .pdf, .txt, .html
 
  You are free to edit the index.html page however do not change the order of the form section. The order of http arguments are: 1. search 2. choice 3. sort
  The server expects their related ID and order to match whats specified in the code. So with that being said, change anything except for the content within the form tags for stability.

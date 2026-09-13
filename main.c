@@ -418,8 +418,10 @@ void parse_request(char *request, struct RequestData *data) {
         strcpy(data->filetype, "function");
     } else if (strstr(data->filepath, ".wav")) {
         strcpy(data->filetype, ".wav");
-     } else if (strstr(data->filepath, ".mp3")) {
+    } else if (strstr(data->filepath, ".mp3")) {
         strcpy(data->filetype, ".mp3");
+    } else if (strstr(data->filepath, ".pdf")) {
+        strcpy(data->filetype, ".pdf");
     } else {
         strcpy(data->filetype, "unknown");
     }
@@ -691,12 +693,14 @@ void send_pdf(char *path, int socket) {
     snprintf(pdf_header, sizeof(pdf_header),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/pdf\r\n"
-        "Content-Length: %ld\r\n\r\n",
+        "Content-Length: %ld\r\n"
+        "Content-Disposition: inline\r\n\r\n",
         size);
     send(socket, pdf_header, strlen(pdf_header), 0);
-    char pdf_file[size];
-    while (fgets(pdf_file, sizeof(pdf_file), file)) {
-        send(socket, pdf_file, strlen(pdf_file), 0);
+    ssize_t read_bytes;
+    char buf[BUFFER];
+    while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
+        send(socket, buf, read_bytes, 0);
     }
 
     fclose(file);
