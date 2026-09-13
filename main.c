@@ -677,6 +677,32 @@ void send_video(int socket, char *path, char *client_request, char *ext) {
     fclose(file);
 }
 
+void send_pdf(char *path, int socket) {
+    FILE *file = fopen(path, "r");
+    if (!file) {
+        printf("File not found. Sending 404\n");
+        fof(socket);
+        return;
+    }
+    fseek(file, 0L, SEEK_END);
+    long int size = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+    char pdf_header[BUFFER];
+    snprintf(pdf_header, sizeof(pdf_header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/pdf\r\n"
+        "Content-Length: %ld\r\n\r\n",
+        size);
+    send(socket, pdf_header, strlen(pdf_header), 0);
+    char pdf_file[size];
+    while (fgets(pdf_file, sizeof(pdf_file), file)) {
+        send(socket, pdf_file, strlen(pdf_file), 0);
+    }
+
+    fclose(file);
+    close(socket);
+
+}
 
 void send_page(char *path, int socket) {
     FILE *file = fopen(path, "r");
@@ -770,7 +796,10 @@ void *client(void *new_socket) {
             send_video(socket, request.filepath, buffer, request.filetype);
         } else if (strcmp(request.filetype, ".mp3") == 0 || strcmp(request.filetype, ".wav") == 0) {
             printf("Request is for videos, sending %s\n", request.filepath);
-            send_audio(socket, request.filepath, buffer);
+            send_audio(socket, request.filepath, buffer); 
+        } else if (strcmp(request.filetype, ".pdf") == 0) {
+            printf("Request is for PDFs, sending %s\n", request.filepath);
+            send_pdf(request.filepath, socket);
         }
     }
     
