@@ -9,7 +9,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJECTS)
 	rm -f *.o
-    @echo "Build complete! Run with: ./$(TARGET)"
+	@echo "Build complete! Run with: ./$(TARGET)"
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -19,19 +19,22 @@ clean:
 	@echo "Cleaned build files"
 
 install: $(TARGET)
-	sudo cp $(TARGET) /usr/local/bin/
-	@echo "Installed to /usr/local/bin/$(TARGET)"
+	sudo mkdir -p /opt/streamer
+	sudo cp -r * /opt/streamer
+	@echo "Installed to /opt/streamer/$(TARGET)"
 
 uninstall:
-	sudo rm -f /usr/local/bin/$(TARGET)
-	@echo "Uninstalled $(TARGET)"
+	sudo rm /opt/streamer/$(TARGET)
+	sudo rm /opt/streamer/*.html
+	sudo rm /opt/streamer/*.md
+	sudo rm /opt/streamer/*.c
+	sudo rm /opt/streamer/*.ico
+	@echo "Uninstalled $(TARGET) and related HTML files. Media left intact"
+	sudo rm /opt/streamer/Makefile
 
 debug: CFLAGS += -g -DDEBUG
 debug: clean $(TARGET)
 	@echo "Debug build complete"
-
-run: $(TARGET)
-	./$(TARGET)
 
 check:
 	@echo "Checking dependencies..."
@@ -44,12 +47,10 @@ check:
 
 help:
 	@echo "Available targets:"
-	@echo "  all       - Build the video server (default)"
 	@echo "  clean     - Remove build files"
 	@echo "  debug     - Build with debug symbols"
-	@echo "  run       - Build and run the server"
-	@echo "  install   - Install to /usr/local/bin (requires sudo)"
-	@echo "  uninstall - Remove from /usr/local/bin"
+	@echo "  install   - Install to /opt"
+	@echo "  uninstall - Remove from /opt"
 	@echo "  check     - Check for dependencies and directories"
 	@echo "  help      - Show this help"
 

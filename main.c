@@ -165,7 +165,7 @@ void search(char *search, char files[MEDIA_AMNT][MEDIA_LENGTH], char result[PAGE
     printf("Searching...\n");
     
     char page_start[BUFFER];
-
+    char temp_path[BUFFER] = {0};
     snprintf(page_start, sizeof(page_start),
     "<!DOCTYPE html><html lang='en'>\n"
     "<body style='background-color:black;'>\n"
@@ -186,10 +186,11 @@ void search(char *search, char files[MEDIA_AMNT][MEDIA_LENGTH], char result[PAGE
     strcpy(result, page_start);
     
     int len = count_char(result);
-    
     for (int i = 0; files[i][0] != 0; i++) {
         if (strstr(files[i], search) || search[0] == '*') {
-            if (strcmp(files[i], "init") != 0) {
+            strcpy(temp_path, files[i]);
+            printf("%s\n", temp_path);
+            if (strcmp(remove_extention(isolate(temp_path, '/')), "init") != 0) {
                 strcat(result, "<p style='color:white';><a style='color:white'; href='/");
                 strcat(result, files[i]);
                 strcat(result, "'>");
